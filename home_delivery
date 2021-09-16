@@ -1,0 +1,53 @@
+
+--- PRODUCT LINE = HEB_HOME_DELIVERY
+--- market_balance (neighborhood ratio) at time of creation would be resource intensive to add in
+with hd_table as (
+    select o.favor_id,
+           r.assign_id,
+           o.product_line,
+           o.requested_cdt,
+           o.dow_cdt,
+           o.hour_cdt,
+           o.miles_pickup_to_dropoff,
+           m.current_market_name as market,
+           o.minutes_to_first_assign,
+           o.minutes_to_accept,
+           o.minutes_to_store,
+           o.minutes_at_store,
+           o.minutes_to_deliver,
+           a.address_type,
+           b.outcome_bucket
+from reporting.orders o
+left join reporting.markets m
+    on o.market_id = m.market_id
+left join runner.assignments r
+    on o.favor_id = r.favor_id
+left join api.address a
+    on o.address_id = a.id
+left join marketplace.heb_home_deliveries b
+   on o.favor_id = b.favor_id
+where product_line = 'heb_home_delivery'
+
+--- csv file was too large, so this was narrowed down to a ~45 day window
+    and trunc(o.requested_cdt) between '2021-8-1' and '2021-9-15'
+    and o.is_runnable = '1'
+),
+
+hd_table2 as (
+select favor_id, product_line, trunc(requested_cdt), dow_cdt, hour_cdt, miles_pickup_to_dropoff,
+       minutes_to_first_assign, minutes_to_accept, minutes_to_store, minutes_at_store, minutes_to_deliver, outcome_bucket,
+case when (market = 'Austin Metro' or market = 'San Antonio Metro' or market = 'DFW Metro' or market = 'Houston Metro') then 'tier_1'
+            else 'tier_2' end as market_tier,
+count(distinct assign_id) as runner_assignment_count,
+
+--- address_type is null for all 'heb_home_delivery' product lines, so this wasn't included in the model
+case when address_type = 'apartment' then '1'
+     else '0' end as address_is_apartment,
+case when outcome_bucket = 'on time' then '1'
+            else '0' end as on_time_delivery
+
+from hd_table
+group by favor_id, product_line, requested_cdt, dow_cdt, hour_cdt, miles_pickup_to_dropoff, market, address_type,
+       minutes_to_first_assign, minutes_to_accept, minutes_to_store, minutes_at_store, minutes_to_deliver, outcome_bucket)
+
+select * from hd_table2;
